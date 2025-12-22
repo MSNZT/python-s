@@ -1,10 +1,29 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import os
 from typing import List
 from urllib.parse import urlparse
 
 class TodoServer(BaseHTTPRequestHandler):
     tasks_list = []
+    FILE_NAME = "tasks.txt"
+    
+    @classmethod
+    def load_tasks(cls):
+        if os.path.exists(cls.FILE_NAME):
+            try:
+                with open(cls.FILE_NAME, 'r', encoding='utf-8') as f:
+                    cls.tasks_list = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                cls.tasks_list = []
+    
+    @classmethod
+    def save_tasks(cls):
+        try:
+            with open(cls.FILE_NAME, 'w', encoding='utf-8') as f:
+                json.dump(cls.tasks_list, f, ensure_ascii=False, indent=2)
+        except IOError:
+            pass
 
     def do_GET(self):
         match self.path:
@@ -12,7 +31,6 @@ class TodoServer(BaseHTTPRequestHandler):
                 self.get_tasks()
             case _:
                 self.not_found()
-
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -43,6 +61,7 @@ class TodoServer(BaseHTTPRequestHandler):
         if self.is_nonempty_str(title) and self.is_nonempty_str(priority):
             new_task = {"id": len(self.tasks_list) + 1,**data, "isDone": False}
             self.tasks_list.append(new_task)
+            self.save_tasks()  # Просто self.save_tasks()
             return self.send_http_response(data=new_task)
         return self.send_http_response(400, {"error":"Validation error","fields":{"title":"required","priority":"required"}})
 
@@ -57,10 +76,10 @@ class TodoServer(BaseHTTPRequestHandler):
                       if task["id"] == task_id), -1)
         if task_index != -1:
             self.tasks_list[task_index].update({"isDone": True})
+            self.save_tasks()
             return self.send_http_response()
 
         return self.send_http_response(404)
-
 
     def get_tasks(self):
         self.send_http_response(data=self.tasks_list)
@@ -83,7 +102,6 @@ class TodoServer(BaseHTTPRequestHandler):
         if body:
             self.wfile.write(body)
 
-
     def read_json(self):
         content_length = int(self.headers["Content-Length"])
         post_data = self.rfile.read(content_length)
@@ -97,12 +115,12 @@ class TodoServer(BaseHTTPRequestHandler):
     def is_nonempty_str(self, s: str) -> bool:
         return isinstance(s, str) and bool(s.strip())
 
-
-
-
 def run_server(server_class=HTTPServer, handler_class=TodoServer):
     PORT = 8000
     server_address = ("", PORT)
+    
+    handler_class.load_tasks()
+    
     server = server_class(server_address, handler_class)
 
     try:
@@ -110,4 +128,5 @@ def run_server(server_class=HTTPServer, handler_class=TodoServer):
         server.serve_forever()
     except KeyboardInterrupt:
         server.server_close()
+
 run_server()
